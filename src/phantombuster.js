@@ -3,156 +3,111 @@ import axios from 'axios';
 
 const PB_BASE_URL = 'https://api.phantombuster.com/api/v2';
 
-// ── PhantomBuster phantom IDs for common scripts ─────────────────────────────
-// These are the official Phantom script IDs available in the PhantomBuster store.
+/**
+ * ── PhantomBuster script identifiers ─────────────────────────────────────────
+ * Using the official slugs is often more reliable than hardcoded numeric IDs 
+ * which change based on the version of the phantom.
+ */
 const PHANTOM_SCRIPTS = {
-  'Sales-Navigator-Search-Export': '6988', 
-  'LinkedIn-Search-Export': '3149', 
+    'Sales-Navigator-Search-Export': 'sales-navigator-search-export',
+    'LinkedIn-Search-Export':        'linkedin-search-export',
 };
 
 // ── Polling configuration ─────────────────────────────────────────────────────
-const POLL_INTERVAL_MS  = 30_000; // 30 seconds between polls
-const MAX_POLL_ATTEMPTS = 40;     // 40 × 30s = 20 minutes max
+const POLL_INTERVAL_MS  = 30_000; 
+const MAX_POLL_ATTEMPTS = 40;     
 
 export class PhantomBusterClient {
-    /**
-     * @param {string} apiKey - PhantomBuster API key
-     */
     constructor(apiKey) {
         if (!apiKey) throw new Error('PhantomBuster API key is required.');
-        this.apiKey  = apiKey;
+        this.apiKey = apiKey;
         this.http = axios.create({
             baseURL: PB_BASE_URL,
             headers: {
                 'X-Phantombuster-Key': this.apiKey,
                 'Content-Type': 'application/json',
             },
-            timeout: 30_000, // 30s per HTTP call
+            timeout: 30_000,
         });
 
-        // Attach response interceptor for unified error handling
+        // Improved interceptor to catch the ACTUAL error message from PB
         this.http.interceptors.response.use(
             (res) => res,
             (err) => {
-                const status  = err.response?.status;
-                const message = err.response?.data?.message ?? err.message;
+                const status = err.response?.status;
+                const pbMessage = err.response?.data?.message || err.response?.data?.error;
+                const message = pbMessage ? `${pbMessage}` : err.message;
                 throw new Error(`PhantomBuster API error [${status}]: ${message}`);
             }
         );
     }
 
     // ── 1. CREATE PHANTOM ─────────────────────────────────────────────────────
-    /**
-     * Creates a new phantom agent and returns its ID.
-     * @param {object} options
-     * @param {string} options.name   - Name for this agent instance
-     * @param {string} options.script - Script key from PHANTOM_SCRIPTS
-     * @returns {Promise<string>} agentId
-     */
     async createPhantom({ name, script }) {
         const scriptId = PHANTOM_SCRIPTS[script];
         if (!scriptId) {
-            throw new Error(
-                `Unknown phantom script "${script}". ` +
-                `Available: ${Object.keys(PHANTOM_SCRIPTS).join(', ')}`
-            );
+            throw new Error(`Unknown phantom script "${script}".`);
         }
 
         const payload = {
             name,
             script: scriptId,
-            // Disable auto-launch and repeating schedule — we control execution
+            arguments: "{}", // PB often requires this as a stringified empty object
             repeatedLaunch: false,
-            autoSave: false,
+            autoSave: true,
         };
 
         const { data } = await this.http.post('/agents/save', payload);
 
-        const agentId = data?.id ?? data?.agentId;
+        // PB API returns 'id' or 'agentId'
+        const agentId = data?.id || data?.agentId;
         if (!agentId) {
             throw new Error('PhantomBuster did not return an agentId on create.');
         }
         return String(agentId);
     }
 
-    // ── 2. GET LINKEDIN SESSION COOKIE VIA PHANTOM ───────────────────────────
-    /**
-     * Uses PhantomBuster's built-in LinkedIn cookie fetcher to obtain
-     * a session cookie from email + password. This keeps credentials
-     * off your own infrastructure.
-     *
-     * @param {string} email
-     * @param {string} password
-     * @param {string} agentId - The agent that will use the cookie
-     * @returns {Promise<string>} LinkedIn li_at session cookie value
-     */
-    async getLinkedInSessionCookie(email, password, agentId) {
-        log.info('Retrieving LinkedIn session cookie via PhantomBuster...');
-
-        // Step A: Create a transient LinkedIn Session Cookie phantom
+    // ── 2. GET LINKEDIN SESSION COOKIE ───────────────────────────────────────
+    async getLinkedInSessionCookie(email, password) {
+        log.info('Obtaining LinkedIn session cookie via PhantomBuster helper...');
+        
+        // This helper uses the basic LinkedIn Export script just to snag a cookie
         const cookieAgentId = await this.createPhantom({
-            name: `apify-linkedin-login-${Date.now()}`,
-            script: 'LinkedIn-Search-Export', // reuse same family; login helper is universal
+            name: `login-helper-${Date.now()}`,
+            script: 'LinkedIn-Search-Export',
         });
 
-        let sessionCookie = null;
-
         try {
-            // Step B: Launch with just login credentials
             const loginContainerId = await this._launchAgent(cookieAgentId, {
-                action: 'getSessionCookie',
-                sessionCookieMode: 'email-password',
                 linkedinLogin: email,
                 linkedinPassword: password,
+                // Tells the script to just return the cookie and stop
+                action: 'getSessionCookie' 
             });
 
-            // Step C: Poll for cookie result (shorter timeout: 3 min)
-            const result = await this._pollContainer(
-                cookieAgentId,
-                loginContainerId,
-                { maxAttempts: 12, intervalMs: 15_000 }
-            );
+            const result = await this._pollContainer(cookieAgentId, loginContainerId, { 
+                maxAttempts: 15, 
+                intervalMs: 15_000 
+            });
 
-            sessionCookie = result?.output?.sessionCookie
-                         ?? result?.resultObject?.sessionCookie;
+            const sessionCookie = result?.resultObject?.sessionCookie || result?.output?.sessionCookie;
 
             if (!sessionCookie) {
-                throw new Error(
-                    'LinkedIn session cookie not found in PhantomBuster response. ' +
-                    'Check credentials or 2FA settings.'
-                );
+                throw new Error('Failed to retrieve session cookie. Check LinkedIn credentials.');
             }
 
-            log.info('Session cookie obtained successfully.');
+            return sessionCookie;
         } finally {
-            // Always clean up the login agent
-            await this.deletePhantom(cookieAgentId).catch((e) =>
-                log.warning(`Could not delete login agent ${cookieAgentId}: ${e.message}`)
-            );
+            await this.deletePhantom(cookieAgentId).catch(() => {});
         }
-
-        return sessionCookie;
     }
 
     // ── 3. LAUNCH PHANTOM ─────────────────────────────────────────────────────
-    /**
-     * Configures and launches the main scraping phantom.
-     * @param {string} agentId
-     * @param {object} args          - Phantom-specific arguments
-     * @returns {Promise<string>}    containerId (tracks this execution)
-     */
     async launchPhantom(agentId, args) {
-        const containerId = await this._launchAgent(agentId, args);
-        return containerId;
+        return await this._launchAgent(agentId, args);
     }
 
     // ── 4. POLL UNTIL COMPLETE ────────────────────────────────────────────────
-    /**
-     * Polls PhantomBuster until the container reaches a terminal state.
-     * @param {string} agentId
-     * @param {string} containerId
-     * @returns {Promise<object>} The final container result object
-     */
     async pollUntilComplete(agentId, containerId) {
         return this._pollContainer(agentId, containerId, {
             maxAttempts: MAX_POLL_ATTEMPTS,
@@ -161,179 +116,70 @@ export class PhantomBusterClient {
     }
 
     // ── 5. FETCH RESULTS ──────────────────────────────────────────────────────
-    /**
-     * Fetches the result data from a completed container.
-     * PhantomBuster stores results as JSON in the container's resultObject
-     * or as a CSV/JSON file in S3 (referenced by outputFiles).
-     *
-     * @param {string} agentId
-     * @param {object} containerResult - Result from pollUntilComplete
-     * @returns {Promise<Array<object>>}
-     */
     async fetchResults(agentId, containerResult) {
-        // ── Path A: inline resultObject (small payloads) ──────────────────────
+        // Try to get resultObject first
         if (containerResult?.resultObject) {
-            let parsed = containerResult.resultObject;
-            if (typeof parsed === 'string') {
-                try { parsed = JSON.parse(parsed); } catch (_) {}
-            }
+            const res = containerResult.resultObject;
+            const parsed = typeof res === 'string' ? JSON.parse(res) : res;
             if (Array.isArray(parsed)) return parsed;
-            if (parsed?.data && Array.isArray(parsed.data)) return parsed.data;
         }
 
-        // ── Path B: output CSV/JSON file URL ──────────────────────────────────
-        const outputUrl = containerResult?.outputFiles?.[0]?.url
-                       ?? containerResult?.s3Folder?.url;
-
+        // Fallback to S3 file download
+        const outputUrl = containerResult?.outputFiles?.[0]?.url;
         if (outputUrl) {
-            log.info(`Downloading results from: ${outputUrl}`);
-            const { data } = await axios.get(outputUrl, { timeout: 60_000 });
-
-            if (typeof data === 'string') {
-                // Try CSV parse
-                return this._parseCsv(data);
-            }
-            if (Array.isArray(data)) return data;
-            if (data?.data && Array.isArray(data.data)) return data.data;
+            log.info(`Downloading results from PB storage...`);
+            const { data } = await axios.get(outputUrl);
+            return typeof data === 'string' ? this._parseCsv(data) : data;
         }
 
-        // ── Path C: fetch directly from agent output endpoint ─────────────────
-        log.info('Fetching results via agent output endpoint...');
-        const { data } = await this.http.get(`/agents/${agentId}/output`, {
-            params: { mode: 'json', withoutDuplicates: false },
-        });
-
-        if (Array.isArray(data)) return data;
-        if (data?.data && Array.isArray(data.data)) return data.data;
-        if (data?.items && Array.isArray(data.items)) return data.items;
-
-        log.warning('Could not parse results — returning raw payload.');
-        return [data];
+        return [];
     }
 
     // ── 6. DELETE PHANTOM ─────────────────────────────────────────────────────
-    /**
-     * Permanently deletes a phantom agent from PhantomBuster.
-     * @param {string} agentId
-     */
     async deletePhantom(agentId) {
         await this.http.delete(`/agents/${agentId}`);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // PRIVATE HELPERS
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Launches an agent with the given arguments.
-     * @private
-     */
+    // ── PRIVATE HELPERS ──────────────────────────────────────────────────────
     async _launchAgent(agentId, args) {
         const payload = {
             id: agentId,
             arguments: JSON.stringify(args),
-            saveArguments: false,
+            saveArguments: true,
         };
 
         const { data } = await this.http.post('/agents/launch', payload);
-
-        const containerId = data?.containerId ?? data?.id;
-        if (!containerId) {
-            throw new Error(`PhantomBuster launch did not return a containerId for agent ${agentId}.`);
-        }
+        const containerId = data?.containerId || data?.id;
+        
+        if (!containerId) throw new Error(`Launch failed for agent ${agentId}`);
         return String(containerId);
     }
 
-    /**
-     * Polls a container until it reaches a terminal state.
-     * Terminal states: finished, error, killed, stopped
-     * @private
-     */
     async _pollContainer(agentId, containerId, { maxAttempts, intervalMs }) {
-        const TERMINAL_STATES = new Set(['finished', 'error', 'killed', 'stopped']);
-        let attempt = 0;
+        const TERMINAL = new Set(['finished', 'error', 'killed', 'stopped']);
+        
+        for (let i = 0; i < maxAttempts; i++) {
+            const { data } = await this.http.get(`/containers/${containerId}`);
+            const status = (data?.status || '').toLowerCase();
 
-        while (attempt < maxAttempts) {
-            attempt++;
+            log.info(`Phantom status: ${status} (Attempt ${i + 1}/${maxAttempts})`);
 
-            const { data } = await this.http.get(`/containers/${containerId}`, {
-                params: { withoutDuplicates: false },
-            }).catch(async () => {
-                // Fallback: check via agent status
-                return this.http.get(`/agents/${agentId}`, {
-                    params: { withContainers: false },
-                });
-            });
-
-            const status = (data?.status ?? data?.lastEndMessage ?? '').toLowerCase();
-            log.info(`Poll ${attempt}/${maxAttempts} — status: "${status}"`);
-
-            if (TERMINAL_STATES.has(status)) {
-                if (status === 'error') {
-                    const errMsg = data?.lastEndMessage ?? data?.error ?? 'Unknown error';
-                    throw new Error(`PhantomBuster execution failed: ${errMsg}`);
-                }
+            if (TERMINAL.has(status)) {
+                if (status === 'error') throw new Error(`Phantom error: ${data.lastEndMessage}`);
                 return data;
             }
-
-            // Not done — wait before next poll
-            if (attempt < maxAttempts) {
-                log.info(`Waiting ${intervalMs / 1000}s before next poll...`);
-                await new Promise((r) => setTimeout(r, intervalMs));
-            }
+            await new Promise(r => setTimeout(r, intervalMs));
         }
-
-        throw new Error(
-            `PhantomBuster execution timed out after ${maxAttempts} polls ` +
-            `(${(maxAttempts * intervalMs) / 60_000} minutes).`
-        );
+        throw new Error('PhantomBuster polling timed out.');
     }
 
-    /**
-     * Minimal CSV to JSON parser (handles quoted fields).
-     * @private
-     */
     _parseCsv(raw) {
         const lines = raw.trim().split('\n');
         if (lines.length < 2) return [];
-
-        const headers = this._parseCsvLine(lines[0]);
-        const results  = [];
-
-        for (let i = 1; i < lines.length; i++) {
-            if (!lines[i].trim()) continue;
-            const values = this._parseCsvLine(lines[i]);
-            const row    = {};
-            headers.forEach((h, idx) => {
-                row[h] = values[idx] ?? '';
-            });
-            results.push(row);
-        }
-        return results;
-    }
-
-    _parseCsvLine(line) {
-        const result  = [];
-        let current   = '';
-        let inQuotes  = false;
-
-        for (let i = 0; i < line.length; i++) {
-            const ch   = line[i];
-            const next = line[i + 1];
-
-            if (ch === '"' && inQuotes && next === '"') {
-                current += '"';
-                i++;
-            } else if (ch === '"') {
-                inQuotes = !inQuotes;
-            } else if (ch === ',' && !inQuotes) {
-                result.push(current.trim());
-                current = '';
-            } else {
-                current += ch;
-            }
-        }
-        result.push(current.trim());
-        return result;
+        const headers = lines[0].split(',');
+        return lines.slice(1).map(line => {
+            const values = line.split(',');
+            return headers.reduce((obj, h, i) => ({ ...obj, [h.trim()]: values[i]?.trim() }), {});
+        });
     }
 }
