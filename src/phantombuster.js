@@ -16,15 +16,11 @@ const MAX_POLL_ATTEMPTS = 40;     // 40 × 30s = 20 minutes max
 
 export class PhantomBusterClient {
     /**
-     * @param {string} apiKey      - PhantomBuster API key
-     * @param {object} [options]
-     * @param {number} [options.timeoutMs] - Override max wait time in ms
+     * @param {string} apiKey - PhantomBuster API key
      */
-    constructor(apiKey, options = {}) {
+    constructor(apiKey) {
         if (!apiKey) throw new Error('PhantomBuster API key is required.');
         this.apiKey  = apiKey;
-        this.timeout = options.timeoutMs ?? 20 * 60 * 1000;
-
         this.http = axios.create({
             baseURL: PB_BASE_URL,
             headers: {
@@ -158,9 +154,8 @@ export class PhantomBusterClient {
      * @returns {Promise<object>} The final container result object
      */
     async pollUntilComplete(agentId, containerId) {
-        const maxAttempts = Math.ceil(this.timeout / POLL_INTERVAL_MS);
         return this._pollContainer(agentId, containerId, {
-            maxAttempts,
+            maxAttempts: MAX_POLL_ATTEMPTS,
             intervalMs: POLL_INTERVAL_MS,
         });
     }

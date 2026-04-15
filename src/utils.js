@@ -32,8 +32,8 @@ export function validateInput(input) {
         );
     }
 
-    if (!input.phantomBusterApiKey?.trim()) {
-        errors.push('phantomBusterApiKey is required.');
+    if (!((input.phantomBusterApiKey ?? process.env.PHANTOMBUSTER_API_KEY)?.trim())) {
+        errors.push('PhantomBuster API key is missing. Set PHANTOMBUSTER_API_KEY env var or provide phantomBusterApiKey in input.');
     }
 
     if (errors.length > 0) {
@@ -46,18 +46,12 @@ export function validateInput(input) {
         throw new Error('maxResults must be a number between 1 and 2500.');
     }
 
-    const timeoutMinutes = parseInt(input.timeoutMinutes ?? 10, 10);
-    if (isNaN(timeoutMinutes) || timeoutMinutes < 2 || timeoutMinutes > 60) {
-        throw new Error('timeoutMinutes must be between 2 and 60.');
-    }
-
     return {
         linkedinEmail:      input.linkedinEmail.trim(),
         linkedinPassword:   input.linkedinPassword.trim(),
         salesNavigatorUrl:  input.salesNavigatorUrl.trim(),
-        phantomBusterApiKey: input.phantomBusterApiKey.trim(),
+        phantomBusterApiKey: (input.phantomBusterApiKey ?? process.env.PHANTOMBUSTER_API_KEY ?? '').trim(),
         maxResults,
-        timeoutMinutes,
     };
 }
 
