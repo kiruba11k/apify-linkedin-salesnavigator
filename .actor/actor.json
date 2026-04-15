@@ -1,0 +1,10 @@
+{
+    "actorSpecification": 1,
+    "name": "linkedin-sales-navigator",
+    "title": "LinkedIn Sales Navigator Scraper",
+    "description": "Scrapes LinkedIn Sales Navigator search results.",
+    "version": "1.0",
+    "buildTag": "latest",
+    "environmentVariables": [],
+    "dockerfile": "./Dockerfile"
+}
