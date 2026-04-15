@@ -1,0 +1,53 @@
+{
+    "title": "LinkedIn Sales Navigator Scraper ",
+    "type": "object",
+    "schemaVersion": 1,
+    "required": ["linkedinEmail", "linkedinPassword", "salesNavigatorUrl", "phantomBusterApiKey"],
+    "properties": {
+        "linkedinEmail": {
+            "title": "LinkedIn Email",
+            "type": "string",
+            "description": "Your LinkedIn account email address used to authenticate.",
+            "editor": "textfield",
+            "isSecret": false
+        },
+        "linkedinPassword": {
+            "title": "LinkedIn Password",
+            "type": "string",
+            "description": "Your LinkedIn account password. Stored securely and never logged.",
+            "editor": "textfield",
+            "isSecret": true
+        },
+        "salesNavigatorUrl": {
+            "title": "Sales Navigator Search URL",
+            "type": "string",
+            "description": "The full Sales Navigator search URL to scrape (e.g. https://www.linkedin.com/sales/search/people?...).",
+            "editor": "textfield"
+        },
+        "phantomBusterApiKey": {
+            "title": "PhantomBuster API Key",
+            "type": "string",
+            "description": "Your PhantomBuster API key (found at phantombuster.com → Settings → API).",
+            "editor": "textfield",
+            "isSecret": true
+        },
+        "maxResults": {
+            "title": "Max Results",
+            "type": "integer",
+            "description": "Maximum number of profiles to scrape (1–2500). Default: 100.",
+            "editor": "number",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 2500
+        },
+        "timeoutMinutes": {
+            "title": "Timeout (minutes)",
+            "type": "integer",
+            "description": "How long to wait for complete before giving up (2–60 minutes). Default: 10.",
+            "editor": "number",
+            "default": 10,
+            "minimum": 2,
+            "maximum": 60
+        }
+    }
+}
