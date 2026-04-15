@@ -6,10 +6,7 @@
     "version": "1.0",
     "buildTag": "latest",
     "environmentVariables": {
-        "PHANTOMBUSTER_API_KEY": {
-            "isSecret": true,
-            "required": true
-        }
+        "PHANTOMBUSTER_API_KEY": ""
     },
     "dockerfile": "./Dockerfile"
 }
