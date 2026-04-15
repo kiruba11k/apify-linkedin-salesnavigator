@@ -15,15 +15,12 @@ try {
         salesNavigatorUrl,
         phantomBusterApiKey,
         maxResults = 100,
-        timeoutMinutes = 10,
     } = validateInput(input);
 
     log.info('Input validated. Initialising PhantomBuster client...');
 
     // ─── 2. INITIALISE CLIENT ─────────────────────────────────────────────────
-    const pb = new PhantomBusterClient(phantomBusterApiKey, {
-        timeoutMs: timeoutMinutes * 60 * 1000,
-    });
+    const pb = new PhantomBusterClient(phantomBusterApiKey);
 
     let agentId = null;
 

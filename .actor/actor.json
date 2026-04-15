@@ -5,6 +5,12 @@
     "description": "Scrapes LinkedIn Sales Navigator search results.",
     "version": "1.0",
     "buildTag": "latest",
-    "environmentVariables": [],
+    "environmentVariables": [
+        {
+            "name": "PHANTOMBUSTER_API_KEY",
+            "isSecret": true,
+            "required": true
+        }
+    ],
     "dockerfile": "./Dockerfile"
 }
