@@ -6,8 +6,8 @@ const PB_BASE_URL = 'https://api.phantombuster.com/api/v2';
 // ── PhantomBuster phantom IDs for common scripts ─────────────────────────────
 // These are the official Phantom script IDs available in the PhantomBuster store.
 const PHANTOM_SCRIPTS = {
-    'Sales-Navigator-Search-Export': 'sales-navigator-search-export',
-    'LinkedIn-Search-Export':        'linkedin-search-export',
+  'Sales-Navigator-Search-Export': '6988', 
+  'LinkedIn-Search-Export': '3149', 
 };
 
 // ── Polling configuration ─────────────────────────────────────────────────────
