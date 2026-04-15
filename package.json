@@ -1,0 +1,22 @@
+{
+    "name": "linkedin-sales-navigator-scraper",
+    "version": "1.0.0",
+    "description": "Apify Actor: LinkedIn Sales Navigator scraper",
+    "main": "src/main.js",
+    "type": "module",
+    "scripts": {
+        "start": "node src/main.js",
+        "test":  "node --experimental-vm-modules node_modules/.bin/jest"
+    },
+    "dependencies": {
+        "apify":  "^3.3.0",
+        "axios":  "^1.7.0"
+    },
+    "devDependencies": {
+        "jest":             "^29.0.0",
+        "@jest/globals":    "^29.0.0"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}
